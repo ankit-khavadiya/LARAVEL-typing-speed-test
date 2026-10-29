@@ -8,7 +8,7 @@
             </a>
 
             <ul class="header-meta">
-                <li><i class="fas fa-bolt"></i> Live WPM</li>
+                <li><i class="fas fa-bolt"></i> Live word count</li>
                 <li><i class="fas fa-bullseye"></i> Accuracy tracking</li>
                 <li><i class="fas fa-stopwatch"></i> Timed runs</li>
             </ul>

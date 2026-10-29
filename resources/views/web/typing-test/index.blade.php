@@ -1,6 +1,6 @@
 @extends('web.master')
 
-@section('title', 'Typing Speed Test - Measure Your WPM and Accuracy | TypeRush')
+`@section('title', 'Typing Speed Test - Count Your Words and Accuracy | TypeRush')
 
 @section('page-content')
     <!-- Hero / Game Section -->
@@ -14,7 +14,7 @@
                 <h1 class="game-title">How fast can you <span>really</span> type?</h1>
                 <p class="game-text">
                     Start typing the text below &mdash; the timer begins on your first keystroke. Watch your
-                    words per minute, accuracy and errors update live, then see your full breakdown.
+                    completed words, accuracy and errors update live, then see your full breakdown.
                 </p>
             </div>
 
@@ -34,7 +34,7 @@
                 <div class="option-group">
                     <span class="option-label"><i class="fas fa-layer-group"></i> Difficulty</span>
                     <div class="option-chips" id="difficultyChips">
-                        @foreach(array_keys($wordBank) as $level)
+                        @foreach(array_keys($passages) as $level)
                             <button type="button" class="chip {{ $level == 'medium' ? 'active' : '' }}" data-difficulty="{{ $level }}">
                                 {{ ucfirst($level) }}
                             </button>
@@ -65,7 +65,7 @@
                     <span class="stat-icon"><i class="fas fa-gauge-high"></i></span>
                     <div class="stat-body">
                         <span class="stat-value" id="statWpm">0</span>
-                        <span class="stat-label">Words / minute</span>
+                        <span class="stat-label">Words completed</span>
                     </div>
                 </div>
 
@@ -119,7 +119,7 @@
                         <div class="result-hero">
                             <div class="result-wpm">
                                 <span class="result-wpm-value" id="resultWpm">0</span>
-                                <span class="result-wpm-label">WPM</span>
+                                <span class="result-wpm-label">Words</span>
                             </div>
                             <div class="result-ring" id="resultRing">
                                 <span id="resultAccuracy">100%</span>
@@ -129,7 +129,7 @@
 
                         <ul class="result-grid">
                             <li>
-                                <span class="result-grid-label">Raw WPM</span>
+                                <span class="result-grid-label">Words attempted</span>
                                 <span class="result-grid-value" id="resultRaw">0</span>
                             </li>
                             <li>
@@ -183,7 +183,7 @@
                         <li><i class="fas fa-1"></i> Pick a duration and a difficulty, then click the text block.</li>
                         <li><i class="fas fa-2"></i> The timer starts the moment you press your first key.</li>
                         <li><i class="fas fa-3"></i> Correct letters brighten, mistakes turn red &mdash; backspace to fix them.</li>
-                        <li><i class="fas fa-4"></i> WPM counts correct characters divided by five, over the time elapsed.</li>
+                        <li><i class="fas fa-4"></i> Every word you finish without a mistake adds one to your word count &mdash; capital letters and punctuation have to match too.</li>
                         <li><i class="fas fa-5"></i> Press <kbd>Tab</kbd> any time to restart with fresh text.</li>
                     </ul>
                 </div>
@@ -196,7 +196,7 @@
     <script>
         $(function () {
 
-            let wordBank = @json($wordBank);
+            let passages = @json($passages);
 
             // elements
             let $typingShell   = $('#typingShell');
@@ -211,9 +211,9 @@
                 difficulty: 'medium',
                 target:     '',
                 spans:      [],
+                words:      [],
                 typed:      '',
                 keystrokes: 0,
-                mistakes:   0,
                 startedAt:  null,
                 timeLeft:   {{ $duration }},
                 timerId:    null,
@@ -227,27 +227,40 @@
             // text generation
             // ---------------------------------------------------------------
 
-            // a fresh random run of words, long enough that the clock runs out first
+            // passages in a random order, stitched together until there is comfortably
+            // more text than even a fast typist can finish before the clock runs out
             function buildTarget() {
-                let pool  = wordBank[state.difficulty] || [];
-                let total = Math.max(50, state.duration * 4);
-                let words = [];
-                let last  = '';
+                let pool = (passages[state.difficulty] || []).slice();
 
-                for (let i = 0; i < total; i++) {
-                    let word = pool[Math.floor(Math.random() * pool.length)];
-
-                    // avoid the same word twice in a row, it reads as a glitch
-                    if (word === last && pool.length > 1) {
-                        i--;
-                        continue;
-                    }
-
-                    last = word;
-                    words.push(word);
+                if (!pool.length) {
+                    return '';
                 }
 
-                return words.join(' ');
+                // roughly 15 characters a second is well clear of a 100+ word a minute pace
+                let needed = Math.max(400, state.duration * 15);
+                let text   = '';
+
+                while (text.length < needed) {
+                    shuffle(pool);
+
+                    for (let i = 0; i < pool.length && text.length < needed; i++) {
+                        text += (text ? ' ' : '') + pool[i];
+                    }
+                }
+
+                return text;
+            }
+
+            // Fisher-Yates, so every passage is used once before any of them repeats
+            function shuffle(items) {
+                for (let i = items.length - 1; i > 0; i--) {
+                    let j = Math.floor(Math.random() * (i + 1));
+                    let swap = items[i];
+                    items[i] = items[j];
+                    items[j] = swap;
+                }
+
+                return items;
             }
 
             // one span per character, grouped per word so lines never break mid word
@@ -256,8 +269,16 @@
                 state.spans = [];
 
                 let words = state.target.split(' ');
+                let cursor = 0;
+
+                state.words = [];
 
                 words.forEach(function (word, index) {
+                    // the span of target indexes this word occupies, used to tell when
+                    // the player has finished it
+                    state.words.push({ start: cursor, end: cursor + word.length - 1 });
+                    cursor += word.length + 1;
+
                     let wordEl = document.createElement('span');
                     wordEl.className = 'word';
 
@@ -379,33 +400,58 @@
                 }
 
                 // a whole run finished inside the first second would divide by almost
-                // nothing, so the rate is always measured over at least one second
+                // nothing, so the pace is always judged over at least one second
                 return Math.max(1, (Date.now() - state.startedAt) / 1000);
             }
 
-            // a "word" is five characters, the standard the WPM figure is built on
-            function wpmFrom(chars, seconds) {
-                if (seconds <= 0) {
-                    return 0;
+            // a word counts once the player has typed right through it — past the space
+            // that follows it, or to the end of the text for the final word. `done` is
+            // every word finished, `correct` only the ones with no mistyped character,
+            // and `wrong` the mistyped characters inside them. A word still being typed
+            // is not judged at all, so a slip fixed before the space costs nothing.
+            function countWords() {
+                let done    = 0;
+                let correct = 0;
+                let wrong   = 0;
+                let typed   = state.typed;
+                let last    = state.words.length - 1;
+
+                for (let w = 0; w <= last; w++) {
+                    let word    = state.words[w];
+                    let isLast  = w === last;
+                    // a finished word needs its trailing space typed too, except the last
+                    let through = isLast ? word.end : word.end + 1;
+
+                    if (typed.length <= through) {
+                        break;
+                    }
+
+                    done++;
+
+                    let slips = 0;
+
+                    for (let i = word.start; i <= through; i++) {
+                        if (typed[i] !== state.target[i]) {
+                            slips++;
+                        }
+                    }
+
+                    if (slips === 0) {
+                        correct++;
+                    }
+
+                    wrong += slips;
                 }
 
-                return Math.round((chars / 5) / (seconds / 60));
+                return { done: done, correct: correct, wrong: wrong };
             }
 
-            function currentWpm() {
-                if (!state.startedAt) {
-                    return 0;
-                }
-
-                return wpmFrom(correctChars(), elapsedSeconds());
+            function currentWords() {
+                return countWords().correct;
             }
 
-            function currentRawWpm() {
-                if (!state.startedAt) {
-                    return 0;
-                }
-
-                return wpmFrom(state.typed.length, elapsedSeconds());
+            function currentErrors() {
+                return countWords().wrong;
             }
 
             function currentAccuracy() {
@@ -413,16 +459,16 @@
                     return 100;
                 }
 
-                let value = ((state.keystrokes - state.mistakes) / state.keystrokes) * 100;
+                let value = ((state.keystrokes - currentErrors()) / state.keystrokes) * 100;
 
                 // floored, so a run with any mistake never reads as a clean 100%
                 return Math.max(0, Math.floor(value));
             }
 
             function paintStats() {
-                $('#statWpm').text(currentWpm());
+                $('#statWpm').text(currentWords());
                 $('#statAccuracy').html(currentAccuracy() + '<small>%</small>');
-                $('#statErrors').text(state.mistakes);
+                $('#statErrors').text(currentErrors());
                 $('#statTime').text(state.timeLeft);
                 $('#timeProgress').css('width', (state.timeLeft / state.duration) * 100 + '%');
             }
@@ -456,7 +502,7 @@
                     }
                 }, 1000);
 
-                // WPM and accuracy should feel live, not once a second
+                // the word count and accuracy should feel live, not once a second
                 state.liveId = setInterval(paintStats, 200);
             }
 
@@ -472,7 +518,7 @@
             // ---------------------------------------------------------------
 
             function bestKey() {
-                return 'typerush_best_' + state.duration + '_' + state.difficulty;
+                return 'typerush_best_words_' + state.duration + '_' + state.difficulty;
             }
 
             function readBest() {
@@ -491,7 +537,11 @@
                 }
             }
 
-            function headlineFor(wpm, accuracy) {
+            // the word count alone says nothing without the test length, so the praise is
+            // judged on the pace it works out to
+            function headlineFor(words, seconds, accuracy) {
+                let wpm = seconds > 0 ? (words / (seconds / 60)) : 0;
+
                 if (accuracy < 80) {
                     return 'Slow down a little &mdash; accuracy first';
                 }
@@ -525,8 +575,9 @@
                 // measured over the test length the player actually signed up for
                 let seconds  = state.startedAt ? Math.min(elapsedSeconds(), state.duration) : 0;
                 let correct  = correctChars();
-                let wpm      = wpmFrom(correct, seconds);
-                let raw      = wpmFrom(state.typed.length, seconds);
+                let tally    = countWords();
+                let wpm      = tally.correct;
+                let raw      = tally.done;
                 let accuracy = currentAccuracy();
                 let best     = readBest();
 
@@ -538,13 +589,13 @@
                     $('#resultBest').removeClass('is-record');
                 }
 
-                $('#resultHeadline').html(headlineFor(wpm, accuracy));
+                $('#resultHeadline').html(headlineFor(wpm, seconds, accuracy));
                 $('#resultWpm').text(wpm);
                 $('#resultAccuracy').text(accuracy + '%');
                 $('#resultRaw').text(raw);
                 $('#resultChars').text(state.typed.length);
                 $('#resultCorrect').text(correct);
-                $('#resultWrong').text(state.mistakes);
+                $('#resultWrong').text(tally.wrong);
                 $('#resultTime').text(Math.round(seconds) + 's');
                 $('#resultBest').text(best);
                 $('#resultRing').css('--ring-value', accuracy);
@@ -581,7 +632,6 @@
 
                 state.typed      = '';
                 state.keystrokes = 0;
-                state.mistakes   = 0;
                 state.startedAt  = null;
                 state.timeLeft   = state.duration;
                 state.running    = false;
@@ -634,14 +684,9 @@
                     diff++;
                 }
 
-                // every newly entered character counts as a keystroke, right or wrong
-                for (let i = diff; i < typed.length; i++) {
-                    state.keystrokes++;
-
-                    if (typed[i] !== state.target[i]) {
-                        state.mistakes++;
-                    }
-                }
+                // every newly entered character counts as a keystroke; whether it was
+                // right is judged later, when the word is committed with a space
+                state.keystrokes += typed.length - diff;
 
                 state.typed = typed;
 

@@ -18,6 +18,12 @@
     --c-body: #a7b2c7;
     --c-muted: #6b7794;
     --c-dim: #475069;
+    /* the text still to be typed — bright enough to read comfortably, still clearly
+       behind the characters already typed */
+    --c-upcoming: #8b97b4;
+    /* characters already typed correctly, pushed to pure white so they stay
+       clearly ahead of the upcoming text */
+    --c-typed: #ffffff;
 
     /* Brand — violet into cyan */
     --c-primary: #7c6cff;
@@ -634,12 +640,12 @@ kbd {
 }
 
 .char {
-    color: var(--c-dim);
+    color: var(--c-upcoming);
     transition: color var(--t-fast), text-shadow var(--t-fast);
 }
 
 .char.is-correct {
-    color: var(--c-heading);
+    color: var(--c-typed);
 }
 
 .char.is-wrong {
